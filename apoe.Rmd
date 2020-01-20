@@ -1,0 +1,198 @@
+---
+title: "R Notebook with the code employed in the microbiota analysis of the following paper: Green Coffee Extract Improves Cardiometabolic Parameters and Modulates Gut Microbiota in High-Fat-Diet-Fed ApoE-/- Mice; doi:10.3390/nu11030497"
+output: html_notebook
+author: Juan S. Escobar, Vidarium 2019
+---
+
+# Initial commands
+```{r Initial commands}
+# Clean the workspace
+rm(list = ls())
+# Seed for random generation
+set.seed(5600)
+# Set a color-blind-friendly palette
+cbPalette = c("#999999","#E69F00","#56B4E9","#D55E00","#009E73","#0072B2","#F0E442","#CC79A7","#99CC00","#660000")
+
+```
+
+# Upload libraries
+```{r Upload libraries}
+library(GUniFrac) # UniFrac beta-diversity distances
+library(phytools) # read.newick
+library(reshape2) # melt
+library(ggplot2) # plots
+library(lme4) # mixed models
+library(lmerTest) # extended mixed models
+library(yarrr) # pirate plots
+library(Tax4Fun2) # metagenomic prediction
+library(cowplot) # plot_grid
+```
+
+# Load and organize data
+```{r Load datasets}
+# OTU table
+apoe.G1G2.otus = read.table(file = "d:/Vidarium/GitHub/apoe/apoe.final.G1G2.clean.otus", sep = "\t", row.names = 1, header = T)
+
+# Calculate relative abundances
+apoe.rel.G1G2.otus = t(apoe.G1G2.otus/rowSums(apoe.G1G2.otus))
+
+# Rarefy the OTU table to 2500 reads/sample
+apoe.G1G2.rare = Rarefy(apoe.G1G2.otus, depth = 2500)$otu.tab.rff
+
+# Taxonomy (Greengenes 13_8_99)
+apoe.G1G2.taxonomy = read.table("d:/Vidarium/GitHub/apoe/apoe.final.gg.0.03.cons.taxonomy", sep = "\t", row.names = 1, header = T)
+
+# Metadata
+apoe.G1G2.meta = read.table(file = "d:/Vidarium/GitHub/apoe/apoe.final.G1G2.clean.meta", sep = "\t", row.names = 1, header = T)
+# Remove the sample with <2500 reads
+bad.G1G2 = c("G1_R01_sem06")
+pos_bad.G1G2 = c(3)
+apoe.G1G2.meta = apoe.G1G2.meta[-pos_bad.G1G2,]
+# Metadata by time:
+apoe.G1G2.T1.meta = apoe.G1G2.meta[apoe.G1G2.meta$time=="T1",]
+apoe.G1G2.T2.meta = apoe.G1G2.meta[apoe.G1G2.meta$time=="T2",]
+apoe.G1G2.T3.meta = apoe.G1G2.meta[apoe.G1G2.meta$time=="T3",]
+apoe.G1G2.T4.meta = apoe.G1G2.meta[apoe.G1G2.meta$time=="T4",]
+apoe.G1G2.T5.meta = apoe.G1G2.meta[apoe.G1G2.meta$time=="T5",]
+
+# Phylogenetic tree
+apoe.G1G2.tree = read.newick(file = "d:/Vidarium/GitHub/apoe/apoe.final.0.03.rep.G1G2.phylip.clean.tre")
+```
+
+# Alpha diversity
+```{r}
+alpha_div = read.table(file = "d:/Vidarium/GitHub/apoe/apoe.final.G1G2.clean.groups.summary", sep = "\t", header = T, row.names = 2)
+
+samples_T1 = rownames(apoe.G1G2.T1.meta)
+samples_T2 = rownames(apoe.G1G2.T2.meta)
+samples_T3 = rownames(apoe.G1G2.T3.meta)
+samples_T4 = rownames(apoe.G1G2.T4.meta)
+samples_T5 = rownames(apoe.G1G2.T5.meta)
+
+alpha_div.T1 = alpha_div[samples_T1,]
+alpha_div.T2 = alpha_div[samples_T2,]
+alpha_div.T3 = alpha_div[samples_T3,]
+alpha_div.T4 = alpha_div[samples_T4,]
+alpha_div.T5 = alpha_div[samples_T5,]
+
+# Hypothesis test
+# These models are with random (nested) effects: all data
+lmer1 = lmer(alpha_div$sobs~treatment+(treatment|cage)+(treatment|time), data=apoe.G1G2.meta)
+lmer2 = lmer(alpha_div$sobs~treatment+(treatment|cage), data=apoe.G1G2.meta)
+lmer3 = lmer(alpha_div$sobs~treatment+(treatment|time), data=apoe.G1G2.meta)
+anova(lmer1, lmer2, refit=FALSE) # this is to test the time effect
+anova(lmer1, lmer3, refit=FALSE) # this is to test the cage effect
+
+# Similar models analyzed by time
+lmer1.T1 = lmer(alpha_div.T1$sobs~treatment+(treatment|cage), data=apoe.G1G2.T1.meta)
+anova(lmer1.T1)
+lmer1.T2 = lmer(alpha_div.T2$sobs~treatment+(treatment|cage), data=apoe.G1G2.T2.meta)
+anova(lmer1.T2)
+lmer1.T3 = lmer(alpha_div.T3$sobs~treatment+(treatment|cage), data=apoe.G1G2.T3.meta)
+anova(lmer1.T3)
+lmer1.T4 = lmer(alpha_div.T4$sobs~treatment+(treatment|cage), data=apoe.G1G2.T4.meta)
+anova(lmer1.T4)
+lmer1.T5 = lmer(alpha_div.T5$sobs~treatment+(treatment|cage), data=apoe.G1G2.T5.meta)
+anova(lmer1.T5)
+
+# Figure 6A
+pirateplot(formula = alpha_div$sobs ~ apoe.G1G2.meta$time_treatment,
+           data = alpha_div,
+           theme = 2,
+           pal = c("#0072B2", "#D55E00"),
+           gl = 0, point.o = 0.8,
+           inf.method = "ci",
+           xlab = "",
+           ylab = "Number of OTUs")
+
+```
+
+# Beta diversity: UniFrac distances
+```{r}
+unifracs.G1G2 <- GUniFrac(apoe.G1G2.rare, apoe.G1G2.tree, alpha=c(0, 0.5, 1))$unifracs
+dw <- unifracs.G1G2[, , "d_1"]   # Weighted UniFrac
+du <- unifracs.G1G2[, , "d_UW"]  # Unweighted UniFrac    
+
+du.dist = as.dist(du)
+dw.dist = as.dist(dw)
+
+# PCoA and variance per PCoA axis
+e.pcoa.du = cmdscale(du.dist, k=5, eig = T)
+e.PC1.du = round(e.pcoa.du$eig[1]/sum(e.pcoa.du$eig), 4)* 100
+e.PC2.du = round(e.pcoa.du$eig[2]/sum(e.pcoa.du$eig), 4)* 100
+e.PC3.du = round(e.pcoa.du$eig[3]/sum(e.pcoa.du$eig), 4)* 100
+
+e.pcoa.dw = cmdscale(dw.dist, k=5, eig = T)
+e.PC1.dw = round(e.pcoa.dw$eig[1]/sum(e.pcoa.dw$eig), 4)* 100
+e.PC2.dw = round(e.pcoa.dw$eig[2]/sum(e.pcoa.dw$eig), 4)* 100
+e.PC3.dw = round(e.pcoa.dw$eig[3]/sum(e.pcoa.dw$eig), 4)* 100
+
+# PERMANOVA
+# Unweighted UniFrac:
+adonis(du.dist ~ time*treatment+treatment/cage+time:treatment/cage, strata=apoe.G1G2.meta$cage, data = apoe.G1G2.meta)
+# Weighted UniFrac:
+adonis(dw.dist ~ time*treatment+treatment/cage+time:treatment/cage, strata=apoe.G1G2.meta$cage, data = apoe.G1G2.meta)
+
+# build ggplot dataframe
+pcoa_table_du = data.frame(PC1.du = e.pcoa.du$points[, 1], PC2.du = e.pcoa.du$points[, 2], PC3.du = e.pcoa.du$points[, 3], time = apoe.G1G2.meta$time, treatment = apoe.G1G2.meta$treatment, time_treatment = apoe.G1G2.meta$time_treatment, label = row.names(apoe.G1G2.meta))
+pcoa_table_dw = data.frame(PC1.dw = e.pcoa.dw$points[, 1], PC2.dw = e.pcoa.dw$points[, 2], PC3.dw = e.pcoa.dw$points[, 3], time = apoe.G1G2.meta$time, treatment = apoe.G1G2.meta$treatment, time_treatment = apoe.G1G2.meta$time_treatment, label = row.names(apoe.G1G2.meta))
+# calculate group centroid locations
+centroids.du <- aggregate(cbind(PC1.du,PC2.du)~time_treatment,data=pcoa_table_du,mean)
+centroids.dw <- aggregate(cbind(PC1.dw,PC2.dw)~time_treatment,data=pcoa_table_dw,mean)
+# merge centroid locations into ggplot dataframe
+pcoa_table_du <- merge(pcoa_table_du,centroids.du,by="time_treatment",suffixes=c("",".centroid"))
+pcoa_table_dw <- merge(pcoa_table_dw,centroids.dw,by="time_treatment",suffixes=c("",".centroid"))
+
+# generate star plot (like s.class)...
+# Unweighted UniFrac (Figure 6B)
+duplot = ggplot(pcoa_table_du) +
+  geom_point(aes(x=PC1.du, y=PC2.du, shape=treatment, color=time)) +
+  geom_point(aes(x=PC1.du.centroid, y=PC2.du.centroid, shape=treatment, color=time, size=1)) +
+  labs(x=paste("PCoA1 (",e.PC1.du,"%)"), y=paste("PCoA2 (",e.PC2.du,"%)")) +
+  scale_colour_manual(values=cbPalette)
+duplot
+
+dwplot = ggplot(pcoa_table_dw) +
+  geom_point(aes(x=PC1.dw, y=PC2.dw, shape=treatment, color=time)) +
+  geom_point(aes(x=PC1.dw.centroid, y=PC2.dw.centroid, shape=treatment, color=time, size=1)) +
+  labs(x=paste("PCoA1 (",e.PC1.dw,"%)"), y=paste("PCoA2 (",e.PC2.dw,"%)")) +
+  scale_colour_manual(values=cbPalette)
+dwplot
+
+```
+
+# OTUs and pathways significantly different between time1 and time5
+```{r}
+# OTUs
+otus = read.table(file = "d:/Vidarium/GitHub/apoe/otus_diff_treatment_median_newest.txt", header=T)
+otus_melt = melt(otus)
+# Pathways
+pathways = read.table(file = "d:/Vidarium/GitHub/apoe/pathways_diff_treatment_median_newest.txt", header=T)
+pathways_T5 = pathways[pathways$time == "T5",]
+pathways_melt = melt(pathways_T5)
+
+# Figure 6C
+palette_6C = c("#CCCCCC","#99CC00","#CCFF00","#99FF00","#66FF00","#33FF00","#00CC00","#33CC33","#006600","#003300","#00FF33","#00FF66","#00FF99","#000033","#000066","#000099","#0000CC","#0000FF","#3366CC","#FF3300","#FF6600","#FF9900","#FFCC66","#FF9966","#FF6633","#CC3300","#660000")
+
+ggplot(otus_melt, aes(x=time_treatment, y=value, fill=factor(variable, levels = c("Other","Bacteria_unclassified","Adlercreutzia","Bacteroides","Bacteroidales_S24_7","Lactobacillus","Lactobacillus_reuteri","Clostridium","Clostridiales","Allobaculum","Coprobacillus","Sutterella","Mollicutes_RF39","Mogibacteriaceae","Coprococcus","Dorea","Ruminococcus","Firmicutes_unclassified","Desulfovibrio_C21_c20","Lactococcus","Streptococcus","Clostridium_celatum","Clostridiaceae_SMB53","Lachnospiraceae","Ruminococcus_gnavus","Ruminococcaceae","Oscillospira")))) + 
+  geom_bar(stat="identity") +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+  labs(x = "", y = "Relative abundance") +
+  guides(fill=guide_legend(title="Different OTUs")) +
+  scale_fill_manual(values = palette_6C) +
+  coord_cartesian(ylim=c(0,0.7))+
+  theme(legend.position="right")
+
+# Figure 6D
+palette_6D = c("#CCCCCC","#00FFCC","#33FFCC","#00FFFF","#00CCCC","#009999","#006666","#003333","#3399CC","#3366CC","#0000FF","#0000CC","#000099","#000066","#000033","#FFCC00","#FF9900","#FF6600","#FF3300","#CC9900","#FFCC33","#FFCC66","#FF9966","#FF6633","#CC3300")
+
+ggplot(pathways_melt, aes(x=treatment, y=value, fill=factor(variable, levels = c("other","ko00511.Other_glycan_degradation","ko00600.Sphingolipid_metabolism","ko00190.Oxidative_phosphorylation","ko00920.Sulfur_metabolism","ko03070.Bacterial_secretion_system","ko04142.Lysosome","ko00603.Glycosphingolipid_biosynthesis","ko00531.Glycosaminoglycan_degradation","ko03018.RNA_degradation","ko00513.Various_types_of_N.glycan_biosynthesis","ko00604.Glycosphingolipid_biosynthesis","ko01503.Cationic_antimicrobial_peptide_.CAMP._resistance","ko00250.Alanine._aspartate_and_glutamate_metabolism","ko00140.Steroid_hormone_biosynthesis","ko02010.ABC_transporters","ko00500.Starch_and_sucrose_metabolism","ko01212.Fatty_acid_metabolism","ko00640.Propanoate_metabolism","ko00061.Fatty_acid_biosynthesis","ko00740.Riboflavin_metabolism","ko00561.Glycerolipid_metabolism","ko00480.Glutathione_metabolism","ko05150.Staphylococcus_aureus_infection","ko00983.Drug_metabolism_other_enzymes")))) + 
+  geom_bar(stat="identity") +
+  theme(axis.text.x = element_text(angle = 90, hjust = 1)) +
+  labs(x = "", y = "Relative abundance") +
+  guides(fill=guide_legend(title="Pathways")) +
+  scale_fill_manual(values = palette_6D) +
+  coord_cartesian(ylim=c(0,0.16)) +
+  theme(legend.position="right")
+
+```
