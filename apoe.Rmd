@@ -40,7 +40,7 @@ apoe.rel.G1G2.otus = t(apoe.G1G2.otus/rowSums(apoe.G1G2.otus))
 apoe.G1G2.rare = Rarefy(apoe.G1G2.otus, depth = 2500)$otu.tab.rff
 
 # Taxonomy (Greengenes 13_8_99)
-apoe.G1G2.taxonomy = read.table("d:/Vidarium/GitHub/apoe/apoe.final.gg.0.03.cons.taxonomy", sep = "\t", row.names = 1, header = T)
+apoe.G1G2.taxonomy = read.table("d:/Vidarium/GitHub/apoe/apoe.final.gg.0.03.cons.rare.relfreq.T1T5.taxonomy", sep = "\t", row.names = 1, header = T)
 
 # Metadata
 apoe.G1G2.meta = read.table(file = "d:/Vidarium/GitHub/apoe/apoe.final.G1G2.clean.meta", sep = "\t", row.names = 1, header = T)
